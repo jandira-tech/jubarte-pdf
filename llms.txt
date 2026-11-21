@@ -1,0 +1,9 @@
+# jubarte-pdf
+
+> DOCX to PDF as one WebAssembly module with its fonts compiled in. It runs in the browser, Node and Bun, reads no file and opens no connection.
+
+## Docs
+
+- [README](https://raw.githubusercontent.com/jandira-tech/jubarte-pdf/HEAD/README.md): what it is, sizes and timings, the engine API (`loadPdfEngine`, `docxToPdf`, `PdfOptions`), the server converter (`jubarte-pdf/server`) and the worker body (`jubarte-pdf/serve`)
+- [Engine API source](https://raw.githubusercontent.com/jandira-tech/jubarte-pdf/HEAD/js/index.ts): typed options and errors
+- [jubarte](https://github.com/jandira-tech/jubarte): the renderer this module is built from
