@@ -45,7 +45,8 @@ describe("the WebAssembly module", () => {
     ]);
   });
 
-  it("carries the fonts: sixteen faces of Carlito and Liberation", () => {
+  it("carries the four font families by name", () => {
+    // That all sixteen faces work is measured on a PDF, in engine.test.ts.
     const bytes = readFileSync(wasmPath).toString("latin1");
     for (const family of ["Carlito", "Liberation Sans", "Liberation Serif", "Liberation Mono"]) {
       expect(bytes).toContain(family);

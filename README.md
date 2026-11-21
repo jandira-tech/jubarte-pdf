@@ -38,8 +38,8 @@ download(new Blob([pdf], { type: "application/pdf" }), "document.pdf");
 - a headless `FolioDocxReviewer`, through its `toBuffer()`.
 
 It resolves to an `ArrayBuffer` and rejects with the renderer's message when
-the document cannot be rendered, or with `NoDocumentError` when the editor has
-none open.
+the document cannot be rendered, or with `NoDocumentError` when the editor is
+not mounted yet (a `null` ref) or has no document open.
 
 To avoid the wait on the first export, call `pdfExporter.preload()` when the
 user is likely to export (on hover of the menu, or when the browser is idle).
@@ -70,7 +70,19 @@ synchronous engine. Pass `source` (a URL, a `Response`, bytes or a compiled
 `WebAssembly.Module`) when your host serves the `.wasm` file from somewhere
 else; the file is also exported as `jubarte-pdf/wasm`. Vite and other
 bundlers that understand `new URL(..., import.meta.url)` need no setup. In
-Node the file is read from disk.
+Node the file is read from the package's `pkg/` folder.
+
+Two limits to know:
+
+- A Node application that bundles this package into one file (esbuild, tsup)
+  moves the code away from `pkg/`. The load then rejects with
+  `WasmNotFoundError`; keep `jubarte-pdf` external in that bundle, or pass
+  `source`.
+- The engine is one instance per page, loaded from one place. The first
+  `loadPdfEngine` call decides where from; a later call with a different
+  `source` rejects with `EngineAlreadyLoadedError` instead of being ignored.
+  A host with its own `.wasm` address gives it to the folio exporter as
+  `load: () => import("jubarte-pdf").then((m) => m.loadPdfEngine(address))`.
 
 ## Fonts
 
@@ -112,7 +124,7 @@ read the PDFs.
 ```sh
 pnpm install
 pnpm build        # the module into pkg/, then the library into dist/
-pnpm test         # 39 tests
+pnpm test         # 45 tests
 pnpm typecheck && pnpm lint
 cargo test        # the conversion's own two tests, natively
 pnpm demo         # a page that exports a DOCX in the browser

@@ -58,21 +58,82 @@ const CONTENT_TYPES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 const ROOT_RELS = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>`;
 
-/** A minimal DOCX with one paragraph per entry, each set in the named font. */
-export const docxWithFonts = (
-  paragraphs: readonly { font: string; text: string }[],
-): Uint8Array => {
-  const body = paragraphs
+const W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main";
+
+const SECTION = `<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr>`;
+
+const pack = (body: string, parts: Record<string, string> = {}): Uint8Array => {
+  const extra = Object.keys(parts);
+  const overrides = extra
     .map(
-      ({ font, text }) =>
-        `<w:p><w:r><w:rPr><w:rFonts w:ascii="${font}" w:hAnsi="${font}" w:cs="${font}"/></w:rPr><w:t>${text}</w:t></w:r></w:p>`,
+      (name) =>
+        `<Override PartName="/word/${name}.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.${name}+xml"/>`,
     )
     .join("");
-  const document = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr></w:body></w:document>`;
-  return zipSync({
-    "[Content_Types].xml": strToU8(CONTENT_TYPES),
+  const rels = extra
+    .map(
+      (name, index) =>
+        `<Relationship Id="rId${index + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/${name}" Target="${name}.xml"/>`,
+    )
+    .join("");
+  const files: Record<string, Uint8Array> = {
+    "[Content_Types].xml": strToU8(CONTENT_TYPES.replace("</Types>", `${overrides}</Types>`)),
     "_rels/.rels": strToU8(ROOT_RELS),
-    "word/document.xml": strToU8(document),
-  });
+    "word/document.xml": strToU8(
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<w:document xmlns:w="${W}"><w:body>${body}${SECTION}</w:body></w:document>`,
+    ),
+  };
+  if (extra.length > 0) {
+    files["word/_rels/document.xml.rels"] = strToU8(
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${rels}</Relationships>`,
+    );
+  }
+  for (const [name, xml] of Object.entries(parts)) {
+    files[`word/${name}.xml`] = strToU8(xml);
+  }
+  return zipSync(files);
+};
+
+export type FontRun = { font: string; text: string; bold?: boolean; italic?: boolean };
+
+/** A minimal DOCX with one paragraph per entry, each set in the named font and style. */
+export const docxWithFonts = (paragraphs: readonly FontRun[]): Uint8Array =>
+  pack(
+    paragraphs
+      .map(
+        ({ font, text, bold = false, italic = false }) =>
+          `<w:p><w:r><w:rPr><w:rFonts w:ascii="${font}" w:hAnsi="${font}" w:cs="${font}"/>${bold ? "<w:b/>" : ""}${italic ? "<w:i/>" : ""}</w:rPr><w:t>${text}</w:t></w:r></w:p>`,
+      )
+      .join(""),
+  );
+
+const PAGE_BREAK = `<w:p><w:r><w:br w:type="page"/></w:r></w:p>`;
+const paragraph = (text: string): string => `<w:p><w:r><w:t>${text}</w:t></w:r></w:p>`;
+
+/**
+ * Five pages, each with a line naming it. Page three has a tracked insertion
+ * and page four a comment; the other pages are untouched.
+ */
+export const fivePagesOneChangeOneComment = (): Uint8Array =>
+  pack(
+    [
+      paragraph("Page one is untouched."),
+      paragraph("Page two is untouched."),
+      `<w:p><w:r><w:t xml:space="preserve">Page three has </w:t></w:r><w:ins w:id="1" w:author="Reviewer" w:date="2026-01-05T10:00:00Z"><w:r><w:t>an inserted phrase</w:t></w:r></w:ins></w:p>`,
+      `<w:p><w:commentRangeStart w:id="7"/><w:r><w:t>Page four is commented.</w:t></w:r><w:commentRangeEnd w:id="7"/><w:r><w:commentReference w:id="7"/></w:r></w:p>`,
+      paragraph("Page five is untouched."),
+    ].join(PAGE_BREAK),
+    {
+      comments: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<w:comments xmlns:w="${W}"><w:comment w:id="7" w:author="Reviewer" w:date="2026-01-05T10:00:00Z" w:initials="R"><w:p><w:r><w:t>Please confirm this clause.</w:t></w:r></w:p></w:comment></w:comments>`,
+    },
+  );
+
+/** The text of each page, as poppler extracts it. */
+export const pdfPageTexts = (pdf: Uint8Array | ArrayBuffer): string[] => {
+  const path = onDisk(pdf);
+  return Array.from({ length: pdfPages(pdf) }, (_unused, index) =>
+    execFileSync("pdftotext", ["-f", String(index + 1), "-l", String(index + 1), path, "-"], {
+      encoding: "utf8",
+    }),
+  );
 };

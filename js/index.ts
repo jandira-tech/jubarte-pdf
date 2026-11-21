@@ -40,7 +40,34 @@ export type PdfEngine = {
 /** Where the `.wasm` file comes from, when the default location does not suit. */
 export type WasmSource = URL | string | Response | BufferSource | WebAssembly.Module;
 
+/** Raised when the `.wasm` file is not where the package expects it. */
+export class WasmNotFoundError extends Error {
+  constructor(location: URL, cause: unknown) {
+    super(
+      `The jubarte-pdf module was not found at ${location.href}. ` +
+        "A bundle that moves this code away from the package's pkg/ folder must say where the file is: " +
+        'loadPdfEngine(source), with the file exported as "jubarte-pdf/wasm".',
+      { cause },
+    );
+    this.name = "WasmNotFoundError";
+  }
+}
+
+/** Raised when the engine is asked for from a second place after it was loaded from a first. */
+export class EngineAlreadyLoadedError extends Error {
+  constructor() {
+    super(
+      "The jubarte-pdf engine is already loaded from another source. " +
+        "It is one instance per page: give the source to the first loadPdfEngine call, or pass none.",
+    );
+    this.name = "EngineAlreadyLoadedError";
+  }
+}
+
+type SourceInput = WasmSource | (() => WasmSource | Promise<WasmSource>);
+
 let loading: Promise<PdfEngine> | undefined;
+let loadedFrom: SourceInput | undefined;
 
 const runsOnNodeFromDisk = (): boolean =>
   typeof process !== "undefined" &&
@@ -59,12 +86,16 @@ const defaultSource = async (): Promise<WasmSource> => {
   const { readFile } = (await import(
     /* @vite-ignore */ nodeFs
   )) as typeof import("node:fs/promises");
-  return await readFile(location);
+  try {
+    return await readFile(location);
+  } catch (cause) {
+    // A Node bundle that inlined this file resolves the address beside the
+    // bundle, where the .wasm file is not.
+    throw new WasmNotFoundError(location, cause);
+  }
 };
 
-const instantiate = async (
-  source: WasmSource | (() => WasmSource | Promise<WasmSource>) | undefined,
-): Promise<PdfEngine> => {
+const instantiate = async (source: SourceInput | undefined): Promise<PdfEngine> => {
   const glue = await import("../pkg/jubarte_pdf_wasm.js");
   const input =
     source === undefined
@@ -88,21 +119,28 @@ const instantiate = async (
 
 /**
  * Fetch, compile and start the engine. The first call does the work; later
- * calls (and calls made while it is still loading) get the same engine, and
- * their `source` is ignored. A failed load is not kept, so the next call
- * tries again.
+ * calls (and calls made while it is still loading) get the same engine. A
+ * failed load is not kept, so the next call tries again.
+ *
+ * The engine is one instance per page, loaded from one place. A later call
+ * may omit `source` or repeat the first one; a different `source` rejects
+ * with {@link EngineAlreadyLoadedError} instead of being ignored.
  */
-export const loadPdfEngine = (
-  source?: WasmSource | (() => WasmSource | Promise<WasmSource>),
-): Promise<PdfEngine> => {
+export const loadPdfEngine = (source?: SourceInput): Promise<PdfEngine> => {
   if (loading === undefined) {
     const attempt = instantiate(source);
     loading = attempt;
+    loadedFrom = source;
     attempt.catch(() => {
       if (loading === attempt) {
         loading = undefined;
+        loadedFrom = undefined;
       }
     });
+    return attempt;
+  }
+  if (source !== undefined && source !== loadedFrom) {
+    return Promise.reject(new EngineAlreadyLoadedError());
   }
   return loading;
 };

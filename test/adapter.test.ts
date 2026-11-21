@@ -101,12 +101,15 @@ describe("what it exports", () => {
     expect([...(seen[0]?.docx ?? [])]).toEqual([...DOCX]);
   });
 
-  it("says so when the editor has no document", async () => {
-    const { load } = standIn();
+  it.each([
+    ["an editor whose save() gives null", { save: async () => null }],
+    ["a ref that is not mounted (null)", null],
+    ["a ref that is not mounted (undefined)", undefined],
+  ])("says there is no document for %s", async (_label, source) => {
+    const { load, seen } = standIn();
     const exporter = createFolioPdfExporter({ load });
-    await expect(exporter.exportPdf({ save: async () => null })).rejects.toBeInstanceOf(
-      NoDocumentError,
-    );
+    await expect(exporter.exportPdf(source)).rejects.toBeInstanceOf(NoDocumentError);
+    expect(seen).toEqual([]);
   });
 
   it.each([

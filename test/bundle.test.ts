@@ -6,7 +6,7 @@
 // files it writes show what a browser fetches at startup and what it does
 // not.
 
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { build } from "vite";
@@ -37,9 +37,9 @@ describe("a page built with the adapter", () => {
   it("emits the module as one separate .wasm file, byte for byte", () => {
     const wasm = files.filter((name) => name.endsWith(".wasm"));
     expect(wasm).toHaveLength(1);
-    expect(statSync(join(assets, wasm[0] ?? "")).size).toBe(
-      statSync(join(repoRoot, "pkg/jubarte_pdf_wasm_bg.wasm")).size,
-    );
+    const emitted = readFileSync(join(assets, wasm[0] ?? ""));
+    const built = readFileSync(join(repoRoot, "pkg/jubarte_pdf_wasm_bg.wasm"));
+    expect(emitted.equals(built)).toBe(true);
   });
 
   it("starts from a small script that holds neither the engine nor its glue", () => {

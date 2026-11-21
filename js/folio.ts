@@ -23,7 +23,8 @@ export type DocxBytes = ArrayBuffer | Uint8Array | Blob;
  *
  * - a headless `FolioDocxReviewer`, whose `toBuffer()` resolves to the bytes;
  * - an editor ref (React, Vue), whose `save()` resolves to the bytes, or to
- *   `null` when no document is open. Some folio objects resolve `save()` to
+ *   `null` when no document is open; the ref itself may be `null` before the
+ *   editor mounts. Some folio objects resolve `save()` to
  *   a result object with the bytes in `buffer`; that is read too.
  *
  * An object with both is asked for `toBuffer()`.
@@ -31,7 +32,10 @@ export type DocxBytes = ArrayBuffer | Uint8Array | Blob;
 export type FolioDocxSource =
   | DocxBytes
   | { toBuffer(): Promise<DocxBytes> }
-  | { save(): Promise<DocxBytes | { buffer: DocxBytes } | null> };
+  | { save(): Promise<DocxBytes | { buffer: DocxBytes } | null> }
+  // An editor ref that is not mounted yet: refused with NoDocumentError.
+  | null
+  | undefined;
 
 export type FolioPdfExporterOptions = {
   /**
@@ -58,7 +62,7 @@ export type FolioPdfExporter = {
 /** Raised when an editor has no document to export. */
 export class NoDocumentError extends Error {
   constructor() {
-    super("There is no document to export: save() returned null.");
+    super("There is no document to export: the editor is not mounted, or has none open.");
     this.name = "NoDocumentError";
   }
 }
@@ -101,6 +105,12 @@ const has = <K extends string>(value: object, key: K): value is Record<K, () => 
   typeof (value as Record<string, unknown>)[key] === "function";
 
 const docxBytes = async (source: FolioDocxSource): Promise<Uint8Array> => {
+  if (source === null || source === undefined) {
+    throw new NoDocumentError();
+  }
+  if (typeof source !== "object") {
+    throw new NotDocxBytesError();
+  }
   if (isBytes(source)) {
     return await bytesOf(source);
   }
