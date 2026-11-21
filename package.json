@@ -1,0 +1,41 @@
+{
+  "name": "jubarte-pdf",
+  "version": "0.1.0",
+  "description": "DOCX to PDF in the browser or Node: jubarte's renderer as one WebAssembly module with its fonts compiled in, and a lazy-loaded adapter for folio",
+  "keywords": ["docx", "pdf", "wasm", "webassembly", "word", "folio", "jubarte"],
+  "license": "Apache-2.0",
+  "author": "Jandira Technologies, LLC",
+  "repository": { "type": "git", "url": "https://github.com/jandira-tech/jubarte-pdf.git" },
+  "type": "module",
+  "sideEffects": false,
+  "engines": { "node": ">=20" },
+  "packageManager": "pnpm@12.18.0",
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+    "./folio": { "types": "./dist/folio.d.ts", "default": "./dist/folio.js" },
+    "./wasm": "./pkg/jubarte_pdf_wasm_bg.wasm"
+  },
+  "files": ["dist", "pkg", "LICENSE", "NOTICE", "LICENSES"],
+  "scripts": {
+    "build:wasm": "scripts/build-wasm.sh",
+    "build:js": "tsc -p tsconfig.build.json",
+    "build": "pnpm build:wasm && pnpm build:js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "lint": "oxlint js test demo",
+    "fmt": "oxfmt js test demo",
+    "fmt:check": "oxfmt --check js test demo",
+    "demo": "vite demo",
+    "demo:build": "vite build demo"
+  },
+  "devDependencies": {
+    "@stll/folio-core": "0.69.0",
+    "@types/node": "^22",
+    "fflate": "^0.8.2",
+    "oxfmt": "latest",
+    "oxlint": "latest",
+    "typescript": "^5.9.0",
+    "vite": "^7",
+    "vitest": "^3"
+  }
+}

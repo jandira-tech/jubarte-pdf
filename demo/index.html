@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>jubarte-pdf: DOCX to PDF in the browser</title>
+    <style>
+      body {
+        font:
+          16px/1.5 system-ui,
+          sans-serif;
+        max-width: 44rem;
+        margin: 3rem auto;
+        padding: 0 1.25rem;
+      }
+      button,
+      input {
+        font: inherit;
+      }
+      button {
+        padding: 0.5rem 1rem;
+      }
+      .row {
+        display: flex;
+        gap: 0.75rem;
+        align-items: center;
+        flex-wrap: wrap;
+        margin: 1rem 0;
+      }
+      #status {
+        min-height: 1.5rem;
+      }
+      iframe {
+        width: 100%;
+        height: 70vh;
+        border: 1px solid #bbb;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>DOCX to PDF, in this tab</h1>
+    <p>
+      The converter is not downloaded until you export. Nothing is uploaded: the document is
+      rendered here.
+    </p>
+    <div class="row">
+      <label>Document <input id="file" type="file" accept=".docx" /></label>
+      <label><input id="word" type="checkbox" /> Word's change markup</label>
+    </div>
+    <div class="row">
+      <button id="export" type="button">Export PDF</button>
+      <span id="status" role="status">Converter not loaded.</span>
+    </div>
+    <iframe id="preview" title="Exported PDF" hidden></iframe>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

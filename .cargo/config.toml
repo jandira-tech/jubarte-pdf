@@ -1,0 +1,7 @@
+# The flags jubarte's own WebAssembly builds use: SIMD, and an 8 MiB stack
+# for deeply nested documents.
+[target.wasm32-unknown-unknown]
+rustflags = [
+  "-C", "target-feature=+simd128",
+  "-C", "link-arg=-zstack-size=8388608",
+]

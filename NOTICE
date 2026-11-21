@@ -1,0 +1,19 @@
+jubarte-pdf
+Copyright 2026 Jandira Technologies, LLC
+
+This product is licensed under the Apache License, Version 2.0 (LICENSE).
+
+The WebAssembly module in pkg/ is built from the jubarte renderer
+(https://github.com/jandira-tech/jubarte, Apache-2.0; see its NOTICE for the
+attributions of the code it derives from) and contains these font files,
+unmodified, each under the SIL Open Font License 1.1:
+
+- Carlito (Regular, Bold, Italic, Bold Italic)
+  Copyright (c) 2010-2013 by tyPoland Lukasz Dziedzic, with Reserved Font
+  Name "Carlito". Licence text: LICENSES/Carlito-OFL.txt
+
+- Liberation Sans, Liberation Serif and Liberation Mono (Regular, Bold,
+  Italic, Bold Italic of each)
+  Digitized data copyright (c) 2010 Google Corporation, with Reserved Font
+  Name Arimo, Tinos and Cousine. Copyright (c) 2012 Red Hat, Inc., with
+  Reserved Font Name Liberation. Licence text: LICENSES/Liberation-OFL.txt

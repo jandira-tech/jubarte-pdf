@@ -1,0 +1,39 @@
+# SPDX-FileCopyrightText: 2026 Jandira Technologies, LLC
+#
+# SPDX-License-Identifier: Apache-2.0
+
+[package]
+name = "jubarte-pdf-wasm"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94"
+publish = false
+description = "DOCX to PDF, and nothing else, as WebAssembly: jubarte's renderer with its fonts compiled in"
+license = "Apache-2.0"
+repository = "https://github.com/jandira-tech/jubarte-pdf"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+# The renderer is the only jubarte crate here. Compare, edit, Markdown, the
+# document tools and the command line are separate crates and are not
+# dependencies, so none of their code can reach this module.
+[dependencies]
+jubarte-render = { version = "=0.19.0", default-features = false }
+wasm-bindgen = "0.2"
+
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = [
+  "-O3",
+  "--enable-bulk-memory",
+  "--enable-nontrapping-float-to-int",
+  "--enable-sign-ext",
+  "--enable-simd",
+]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = "symbols"
+panic = "abort"
