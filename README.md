@@ -3,51 +3,69 @@
 [![CI](https://github.com/jandira-tech/jubarte-pdf/actions/workflows/ci.yml/badge.svg)](https://github.com/jandira-tech/jubarte-pdf/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
-DOCX to PDF in the browser or in Node, with no server and no LibreOffice.
+DOCX to PDF without a converter service: in the browser, in Node or in Bun,
+with no LibreOffice and no container.
 
 It is [jubarte](https://github.com/jandira-tech/jubarte)'s renderer built as
-one WebAssembly module that does this conversion and nothing else, plus an
-adapter that gives [folio](https://github.com/stella/folio) a PDF export and
-loads the module only when someone exports.
+one WebAssembly module that does this conversion and nothing else, plus a
+converter for [Stella](https://github.com/stella/stella) that runs it inside
+the API process, where Stella today calls a Gotenberg container.
 
 | | |
 |---|---|
-| Module | `pkg/jubarte_pdf_wasm_bg.wasm`, 10.9 MB (3.8 MB with Brotli) |
+| Module | `pkg/jubarte_pdf_wasm_bg.wasm`, 10.9 MB (3.4 MB with Brotli) |
 | Exports | one function, `docxToPdf` |
 | Fonts | 16 faces compiled in: Carlito and Liberation Sans, Serif and Mono |
 | Engine | `jubarte-render` 0.19.0 |
 
-## Use it with folio
+## Use it in Stella
+
+Stella renders files to PDF in one module, `apps/api/src/lib/files/gotenberg.ts`,
+by posting them to Gotenberg (LibreOffice in a container). This converter
+returns the same `Result<{ buffer, sizeBytes }, error>` for `.docx`, from a
+worker thread of the API itself:
 
 ```ts
-import { createFolioPdfExporter } from "jubarte-pdf/folio";
+import { createStellaPdfConverter } from "jubarte-pdf/stella";
 
-// At startup. This loads nothing.
-const pdfExporter = createFolioPdfExporter({ defaults: { revisions: "word" } });
+// At startup. This starts nothing.
+const pdfConverter = createStellaPdfConverter({
+  maxPdfBytes: LIMITS.fileDerivativePdfMaxBytes,
+  // Optional: where a Gotenberg is still deployed, it keeps the other types.
+  fallback: (file) => convertWithGotenberg(file),
+});
 
-// When the user chooses "Export as PDF". The first call fetches and
-// compiles the module; later calls reuse it.
-const pdf = await pdfExporter.exportPdf(editorRef.current);
-download(new Blob([pdf], { type: "application/pdf" }), "document.pdf");
+// Where convertToPdf(file) is called today.
+const result = await pdfConverter.convertToPdf(scannedFile);
+if (Result.isError(result)) {
+  // result.error.kind: "refused" | "response-too-large" | "timeout" | "crashed" | "unsupported-type"
+}
 ```
 
-`exportPdf` takes whatever holds the document:
+What it does for the host:
 
-- DOCX bytes: an `ArrayBuffer`, a `Uint8Array`, a `Blob` or a `File`;
-- a folio editor ref (React or Vue), through its `save()`;
-- a headless `FolioDocxReviewer`, through its `toBuffer()`.
+- **No service to deploy for Word documents.** No container image, no URL,
+  no credentials, no health probe; the worker thread starts with the first
+  `.docx` and stops after a minute without one (`idleMs`).
+- **The server's event loop stays free.** The conversion runs in a worker
+  thread; one that runs past `timeoutMs` (default 30 s) is stopped and the
+  next document gets a fresh thread.
+- **No request leaves the process.** The module has no file or network call,
+  so a document cannot make the converter fetch anything.
 
-It resolves to an `ArrayBuffer` and rejects with the renderer's message when
-the document cannot be rendered, or with `NoDocumentError` when the editor is
-not mounted yet (a `null` ref) or has no document open.
+What it does not do: it converts `.docx` only. Stella also sends legacy
+`.doc`, spreadsheets, presentations, OpenDocument, RTF, Pages, HTML, text and
+some images to LibreOffice. Those go to `fallback` when one is given and are
+refused as `unsupported-type` when none is. A deployment can drop the
+container only if it does not need PDFs of those types.
 
-To avoid the wait on the first export, call `pdfExporter.preload()` when the
-user is likely to export (on hover of the menu, or when the browser is idle).
-`pdfExporter.loaded` tells whether an export would have to wait.
+`better-result` is a peer dependency of this entry (Stella already has it).
 
-The adapter follows folio's own engine adapters: it imports nothing from
-folio and folio imports nothing from it, so it works with any folio version
-whose editor saves DOCX bytes.
+Stella ships its API as a `bun build` bundle. A bundle moves this code away
+from its worker script and the `.wasm` file, so either keep `jubarte-pdf`
+external to the bundle (and present in the image's `node_modules`), or build
+`jubarte-pdf/dist/stella-worker.js` as an entry of its own and pass its
+address as `worker`.
 
 ## Use the engine directly
 
@@ -65,6 +83,10 @@ const pdf = await docxToPdf(docxBytes, { revisions: "word", comments: "end" });
 | `comments` | `"margin"` | `"margin"` draws balloons beside the text; `"end"` lists the comments after the last page. |
 | `changedOnly` | `false` | Keep only the pages a tracked change or a comment touches. |
 
+In a browser the module is not fetched until the first conversion; a page
+that imports this package with `import()` on the export action ships a start
+script without it (`test/bundle.test.ts` builds one with Vite to check).
+
 `loadPdfEngine(source?)` loads the module ahead of time and returns the
 synchronous engine. Pass `source` (a URL, a `Response`, bytes or a compiled
 `WebAssembly.Module`) when your host serves the `.wasm` file from somewhere
@@ -81,8 +103,6 @@ Two limits to know:
 - The engine is one instance per page, loaded from one place. The first
   `loadPdfEngine` call decides where from; a later call with a different
   `source` rejects with `EngineAlreadyLoadedError` instead of being ignored.
-  A host with its own `.wasm` address gives it to the folio exporter as
-  `load: () => import("jubarte-pdf").then((m) => m.loadPdfEngine(address))`.
 
 ## Fonts
 
@@ -118,13 +138,13 @@ checks all of this on the built file.
 
 Requirements: Rust (stable, with the `wasm32-unknown-unknown` target),
 [wasm-pack](https://github.com/wasm-bindgen/wasm-pack) 0.15, Node 20 or newer,
-pnpm, and poppler (`pdfinfo`, `pdffonts`, `pdftotext`) for the tests that
+pnpm, optionally Bun, and poppler (`pdfinfo`, `pdffonts`, `pdftotext`) for the tests that
 read the PDFs.
 
 ```sh
 pnpm install
 pnpm build        # the module into pkg/, then the library into dist/
-pnpm test         # 46 tests
+pnpm test         # 42 tests
 pnpm typecheck && pnpm lint
 cargo test        # the conversion's own two tests, natively
 pnpm demo         # a page that exports a DOCX in the browser
@@ -134,9 +154,9 @@ What the tests measure:
 
 | File | Measures |
 |---|---|
-| `test/adapter.test.ts` | When the adapter loads the engine, how often, and what it accepts. |
+| `test/stella.test.ts` | The Stella converter with the real module in a real worker thread: lazy start, idle stop, results, fallback, refusals, size limit, timeout and recovery. |
+| `test/bun.test.ts` | The built converter under Bun, Stella's runtime. Skipped where Bun is not installed. |
 | `test/engine.test.ts` | The real module: poppler reads pages, text and embedded fonts from its PDFs. |
-| `test/folio.test.ts` | The published `@stll/folio-core` opens a redline, accepts its changes, and the adapter exports it. |
 | `test/surface.test.ts` | The built `.wasm` file's exports and imports, and Cargo's dependency graph. |
 | `test/bundle.test.ts` | Vite builds the demo; the start script holds no engine and the `.wasm` file is separate. |
 

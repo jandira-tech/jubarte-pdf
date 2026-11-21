@@ -137,3 +137,13 @@ export const pdfPageTexts = (pdf: Uint8Array | ArrayBuffer): string[] => {
     }),
   );
 };
+
+/** A long plain document: enough paragraphs that rendering takes a noticeable time. */
+export const longDocx = (paragraphs: number): Uint8Array =>
+  pack(
+    Array.from({ length: paragraphs }, (_unused, index) =>
+      paragraph(
+        `Paragraph ${index + 1} of a long agreement, with enough words to wrap a line or two on the page.`,
+      ),
+    ).join(""),
+  );

@@ -5,7 +5,13 @@
     "rootDir": "js",
     "outDir": "dist",
     "declaration": true,
-    "types": ["node"]
+    "types": [
+      "node"
+    ],
+    "allowJs": true,
+    "checkJs": false
   },
-  "include": ["js"]
+  "include": [
+    "js"
+  ]
 }

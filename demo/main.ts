@@ -2,12 +2,19 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-// A page that exports a DOCX to PDF. The exporter is created at startup;
-// the WebAssembly module arrives with the first export.
+// A page that exports a DOCX to PDF in the browser. The WebAssembly module
+// arrives with the first export.
 
-import { createFolioPdfExporter } from "../js/folio.js";
-
-const exporter = createFolioPdfExporter();
+// The engine is imported on the first export, so the page starts without it.
+let converted = false;
+const exportPdf = async (docx: Blob, word: boolean): Promise<Uint8Array> => {
+  const { docxToPdf } = await import("../js/index.js");
+  const pdf = await docxToPdf(new Uint8Array(await docx.arrayBuffer()), {
+    revisions: word ? "word" : "conventional",
+  });
+  converted = true;
+  return pdf;
+};
 
 const element = <T extends HTMLElement>(id: string): T => {
   const found = document.getElementById(id);
@@ -35,16 +42,14 @@ const chosenDocument = async (): Promise<Blob> => {
 button.addEventListener("click", () => {
   void (async () => {
     button.disabled = true;
-    status.textContent = exporter.loaded ? "Converting…" : "Loading the converter…";
+    status.textContent = converted ? "Converting…" : "Loading the converter…";
     try {
       const started = performance.now();
-      const pdf = await exporter.exportPdf(await chosenDocument(), {
-        revisions: word.checked ? "word" : "conventional",
-      });
+      const pdf = await exportPdf(await chosenDocument(), word.checked);
       const seconds = ((performance.now() - started) / 1000).toFixed(1);
       status.textContent = `PDF ready: ${pdf.byteLength.toLocaleString()} bytes in ${seconds} s.`;
       status.dataset["pdfBytes"] = String(pdf.byteLength);
-      preview.src = URL.createObjectURL(new Blob([pdf], { type: "application/pdf" }));
+      preview.src = URL.createObjectURL(new Blob([pdf.slice()], { type: "application/pdf" }));
       preview.hidden = false;
     } catch (error) {
       status.textContent = `Could not export: ${error instanceof Error ? error.message : String(error)}`;
