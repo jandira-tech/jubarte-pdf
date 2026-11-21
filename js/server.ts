@@ -3,23 +3,22 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * DOCX to PDF inside Stella's API process, in place of a call to a converter
- * container.
+ * DOCX to PDF inside a server process (Node or Bun), in place of a call to
+ * a converter service such as Gotenberg.
  *
- * Stella renders a document to PDF by posting it to Gotenberg, a container
- * that runs LibreOffice. This module does the Word half of that job in a
- * worker thread of the API itself: no service to deploy, no credentials, no
- * request that can time out on the network. It returns what Stella's own
- * `convertToPdf` returns, a `better-result` `Result` holding
- * `{ buffer, sizeBytes }`, so it slots in where that call is made.
+ * The conversion runs in a worker thread of the server itself: no service
+ * to deploy, no credentials, no request that can time out on the network.
+ * The answer is a `better-result` `Result` holding `{ buffer, sizeBytes }`.
  *
- * It converts `.docx` and nothing else. Every other type Stella renders
- * through LibreOffice (legacy `.doc`, spreadsheets, presentations,
- * OpenDocument, RTF, HTML) goes to `fallback` when one is given, and is
- * refused as `unsupported-type` when none is.
+ * It converts `.docx` and nothing else. Every other type goes to `fallback`
+ * when one is given, and is refused as `unsupported-type` when none is.
  *
  * Nothing is loaded when the converter is created. The worker thread starts,
  * and the WebAssembly module is compiled, with the first `.docx`.
+ *
+ * A server that isolates document work in subprocesses, or bundles its
+ * workers itself, does not need this file: `jubarte-pdf` and
+ * `jubarte-pdf/wasm` are enough to write a converter in a few lines.
  */
 
 import { Worker } from "node:worker_threads";
@@ -31,14 +30,14 @@ import type { PdfOptions } from "./index.js";
 export const DOCX_MIME_TYPE =
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
-/** The fields of Stella's `ScannedFile` that a conversion reads. */
-export type StellaFile = {
+/** The file to convert: its bytes and what it says it is. */
+export type SourceFile = {
   readonly bytes: ArrayBuffer;
   readonly mimeType: string;
   readonly fileName: string;
 };
 
-/** What Stella's `convertToPdf` resolves to. */
+/** A converted document. */
 export type ConvertedPdf = {
   buffer: ArrayBuffer;
   sizeBytes: number;
@@ -67,15 +66,15 @@ export class JubartePdfError extends TaggedError("JubartePdfError")<{
   cause?: unknown;
 }> {}
 
-export type StellaPdfConverterOptions<FallbackError = never> = {
+export type PdfConverterOptions<FallbackError = never> = {
   /**
    * The longest a caller waits for one conversion, counted from the call:
    * waiting behind other documents and starting the thread are inside it. A
    * conversion still running at the deadline has its thread stopped; one
-   * still waiting is not started. Default 30 s, Stella's converter timeout.
+   * still waiting is not started. Default 30 s.
    */
   timeoutMs?: number;
-  /** The largest PDF handed back, such as Stella's `LIMITS.fileDerivativePdfMaxBytes`. Default: no limit. */
+  /** The largest PDF handed back. Default: no limit. */
   maxPdfBytes?: number;
   /**
    * Stop the worker thread after this long without a document, which gives
@@ -86,13 +85,13 @@ export type StellaPdfConverterOptions<FallbackError = never> = {
   idleMs?: number;
   /**
    * Rendering options for every conversion. The default draws comments in the
-   * margin, as Stella asks LibreOffice to (`exportNotesInMargin`).
+   * margin, as Word prints them.
    */
   pdf?: PdfOptions;
-  /** The converter for every type that is not `.docx`: Stella's Gotenberg call, where one is still deployed. */
-  fallback?: (file: StellaFile) => Promise<Result<ConvertedPdf, FallbackError>>;
+  /** The converter for every type that is not `.docx`: a Gotenberg call, where one is still deployed. */
+  fallback?: (file: SourceFile) => Promise<Result<ConvertedPdf, FallbackError>>;
   /**
-   * Where the worker script is. Defaults to `stella-worker.js` beside this
+   * Where the worker script is. Defaults to `server-worker.js` beside this
    * file. A server bundled into one file has moved away from it: build the
    * worker as an entry of its own and name it here, or keep this package
    * out of the bundle.
@@ -100,14 +99,14 @@ export type StellaPdfConverterOptions<FallbackError = never> = {
   worker?: URL | string;
 };
 
-export type StellaPdfConverter<FallbackError = never> = {
+export type PdfConverter<FallbackError = never> = {
   /** Whether this type is converted here, without the fallback. */
   handles(mimeType: string): boolean;
   /** Whether the worker thread is up, so a conversion would not wait for it to start. */
   readonly running: boolean;
   /** Start the worker thread ahead of the first document. */
   warm(): Promise<void>;
-  convertToPdf(file: StellaFile): Promise<Result<ConvertedPdf, JubartePdfError | FallbackError>>;
+  convertToPdf(file: SourceFile): Promise<Result<ConvertedPdf, JubartePdfError | FallbackError>>;
   /** Stop the worker thread. A later conversion starts a new one. */
   close(): Promise<void>;
 };
@@ -134,14 +133,14 @@ const timedOut = (timeoutMs: number): Outcome => ({
   message: `The conversion was not done within ${timeoutMs} ms and was stopped.`,
 });
 
-export const createStellaPdfConverter = <FallbackError = never>({
+export const createPdfConverter = <FallbackError = never>({
   timeoutMs = 30_000,
   idleMs = 60_000,
   maxPdfBytes,
   pdf = {},
   fallback,
-  worker: workerScript = new URL("./stella-worker.js", import.meta.url),
-}: StellaPdfConverterOptions<FallbackError> = {}): StellaPdfConverter<FallbackError> => {
+  worker: workerScript = new URL("./server-worker.js", import.meta.url),
+}: PdfConverterOptions<FallbackError> = {}): PdfConverter<FallbackError> => {
   /** The thread that is ready for documents. */
   let worker: Worker | undefined;
   /** The thread that is starting, and the promise of its being ready. */

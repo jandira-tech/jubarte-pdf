@@ -2,8 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-// The Stella converter, with the real WebAssembly module in a real worker
-// thread, returning the Result type Stella's own convertToPdf returns.
+// The server converter, with the real WebAssembly module in a real worker
+// thread.
 
 import { FolioDocxReviewer } from "@stll/folio-core/server";
 import { Result } from "better-result";
@@ -34,15 +34,15 @@ const exited = (thread: import("node:worker_threads").Worker | undefined): Promi
   });
 
 import {
-  createStellaPdfConverter,
+  createPdfConverter,
   DOCX_MIME_TYPE,
   JubartePdfError,
-  type StellaFile,
-  type StellaPdfConverter,
-} from "../js/stella.js";
+  type SourceFile,
+  type PdfConverter,
+} from "../js/server.js";
 import { fixture, hasPoppler, longDocx, pdfPages, pdfText } from "./helpers.js";
 
-const docxFile = (bytes: Uint8Array, mimeType = DOCX_MIME_TYPE): StellaFile => ({
+const docxFile = (bytes: Uint8Array, mimeType = DOCX_MIME_TYPE): SourceFile => ({
   bytes: bytes.slice().buffer,
   mimeType,
   fileName: "document.docx",
@@ -50,11 +50,11 @@ const docxFile = (bytes: Uint8Array, mimeType = DOCX_MIME_TYPE): StellaFile => (
 
 const header = (pdf: ArrayBuffer): string => new TextDecoder().decode(new Uint8Array(pdf, 0, 5));
 
-const open: StellaPdfConverter<unknown>[] = [];
+const open: PdfConverter<unknown>[] = [];
 const converter = <E = never>(
-  options?: Parameters<typeof createStellaPdfConverter<E>>[0],
-): StellaPdfConverter<E> => {
-  const created = createStellaPdfConverter<E>(options);
+  options?: Parameters<typeof createPdfConverter<E>>[0],
+): PdfConverter<E> => {
+  const created = createPdfConverter<E>(options);
   open.push(created);
   return created;
 };
@@ -72,50 +72,56 @@ const failure = (result: Result<unknown, unknown>): JubartePdfError => {
 
 describe("starting", () => {
   it("starts no thread when created, nor a moment later", async () => {
-    const stella = converter();
+    const converterUnderTest = converter();
     await new Promise((resolve) => setTimeout(resolve, 400));
-    expect(stella.running).toBe(false);
+    expect(converterUnderTest.running).toBe(false);
   });
 
   it("starts the thread with the first .docx and keeps it", async () => {
-    const stella = converter();
-    expect(Result.isOk(await stella.convertToPdf(docxFile(fixture("original.docx"))))).toBe(true);
-    expect(stella.running).toBe(true);
+    const converterUnderTest = converter();
+    expect(
+      Result.isOk(await converterUnderTest.convertToPdf(docxFile(fixture("original.docx")))),
+    ).toBe(true);
+    expect(converterUnderTest.running).toBe(true);
   });
 
   it("stops the thread once it has been idle, and starts another for the next .docx", async () => {
-    const stella = converter({ idleMs: 100 });
-    await stella.convertToPdf(docxFile(fixture("original.docx")));
-    expect(stella.running).toBe(true);
+    const converterUnderTest = converter({ idleMs: 100 });
+    await converterUnderTest.convertToPdf(docxFile(fixture("original.docx")));
+    expect(converterUnderTest.running).toBe(true);
     // The thread itself ends, not only the converter's record of it.
     expect(await exited(threads[0])).toBe(true);
-    expect(stella.running).toBe(false);
-    expect(Result.isOk(await stella.convertToPdf(docxFile(fixture("original.docx"))))).toBe(true);
+    expect(converterUnderTest.running).toBe(false);
+    expect(
+      Result.isOk(await converterUnderTest.convertToPdf(docxFile(fixture("original.docx")))),
+    ).toBe(true);
     expect(threads).toHaveLength(2);
   });
 
   it("ends the thread on close, even one that is still starting", async () => {
-    const stella = converter();
-    const warming = stella.warm().catch(() => "stopped");
+    const converterUnderTest = converter();
+    const warming = converterUnderTest.warm().catch(() => "stopped");
     const gone = exited(threads[0]);
-    await stella.close();
+    await converterUnderTest.close();
     expect(await gone).toBe(true);
     expect(await warming).toBe("stopped");
-    expect(stella.running).toBe(false);
+    expect(converterUnderTest.running).toBe(false);
   });
 
   it("starts ahead of time on warm, and again after close", async () => {
-    const stella = converter();
-    await stella.warm();
-    expect(stella.running).toBe(true);
-    await stella.close();
-    expect(stella.running).toBe(false);
-    expect(Result.isOk(await stella.convertToPdf(docxFile(fixture("original.docx"))))).toBe(true);
+    const converterUnderTest = converter();
+    await converterUnderTest.warm();
+    expect(converterUnderTest.running).toBe(true);
+    await converterUnderTest.close();
+    expect(converterUnderTest.running).toBe(false);
+    expect(
+      Result.isOk(await converterUnderTest.convertToPdf(docxFile(fixture("original.docx")))),
+    ).toBe(true);
   });
 });
 
 describe("a .docx", () => {
-  it("comes back as Stella's result: the PDF and its size", async () => {
+  it("comes back as a result holding the PDF and its size", async () => {
     const result = await converter().convertToPdf(docxFile(fixture("original.docx")));
     if (Result.isError(result)) {
       throw result.error;
@@ -134,18 +140,22 @@ describe("a .docx", () => {
   it.each([`${DOCX_MIME_TYPE}; charset=binary`, DOCX_MIME_TYPE.toUpperCase()])(
     "is recognised as %s",
     async (mimeType) => {
-      const stella = converter();
-      expect(stella.handles(mimeType)).toBe(true);
-      const result = await stella.convertToPdf(docxFile(fixture("original.docx"), mimeType));
+      const converterUnderTest = converter();
+      expect(converterUnderTest.handles(mimeType)).toBe(true);
+      const result = await converterUnderTest.convertToPdf(
+        docxFile(fixture("original.docx"), mimeType),
+      );
       expect(Result.isOk(result)).toBe(true);
     },
   );
 
   it("converts many at once, each to the same PDF it gets alone", async () => {
-    const stella = converter({ pdf: { compress: false } });
-    const alone = await stella.convertToPdf(docxFile(fixture("redline.docx")));
+    const converterUnderTest = converter({ pdf: { compress: false } });
+    const alone = await converterUnderTest.convertToPdf(docxFile(fixture("redline.docx")));
     const together = await Promise.all(
-      Array.from({ length: 24 }, () => stella.convertToPdf(docxFile(fixture("redline.docx")))),
+      Array.from({ length: 24 }, () =>
+        converterUnderTest.convertToPdf(docxFile(fixture("redline.docx"))),
+      ),
     );
     const size = Result.isOk(alone) ? alone.value.sizeBytes : -1;
     expect(together.map((result) => (Result.isOk(result) ? result.value.sizeBytes : 0))).toEqual(
@@ -153,32 +163,29 @@ describe("a .docx", () => {
     );
   });
 
-  it.skipIf(!hasPoppler)(
-    "that folio re-serialized, as Stella does before it renders, keeps its text",
-    async () => {
-      const reviewer = await FolioDocxReviewer.fromBuffer(fixture("redline.docx").slice().buffer);
-      reviewer.acceptAll();
-      const result = await converter().convertToPdf({
-        bytes: await reviewer.toBuffer(),
-        mimeType: DOCX_MIME_TYPE,
-        fileName: "accepted.docx",
-      });
-      if (Result.isError(result)) {
-        throw result.error;
-      }
-      const text = pdfText(result.value.buffer);
-      expect(text).toContain("up to fifteen days per month");
-      expect(text).not.toContain("ten days");
-      expect(pdfPages(result.value.buffer)).toBe(1);
-    },
-  );
+  it.skipIf(!hasPoppler)("that folio re-serialized keeps its text", async () => {
+    const reviewer = await FolioDocxReviewer.fromBuffer(fixture("redline.docx").slice().buffer);
+    reviewer.acceptAll();
+    const result = await converter().convertToPdf({
+      bytes: await reviewer.toBuffer(),
+      mimeType: DOCX_MIME_TYPE,
+      fileName: "accepted.docx",
+    });
+    if (Result.isError(result)) {
+      throw result.error;
+    }
+    const text = pdfText(result.value.buffer);
+    expect(text).toContain("up to fifteen days per month");
+    expect(text).not.toContain("ten days");
+    expect(pdfPages(result.value.buffer)).toBe(1);
+  });
 });
 
 describe("what it does not convert", () => {
   it("refuses another type by name when there is no fallback, without starting the thread", async () => {
-    const stella = converter();
+    const converterUnderTest = converter();
     const error = failure(
-      await stella.convertToPdf({
+      await converterUnderTest.convertToPdf({
         bytes: new ArrayBuffer(4),
         mimeType: "application/msword",
         fileName: "old.doc",
@@ -186,17 +193,17 @@ describe("what it does not convert", () => {
     );
     expect(error.kind).toBe("unsupported-type");
     expect(error.message).toContain("application/msword");
-    expect(stella.running).toBe(false);
+    expect(converterUnderTest.running).toBe(false);
   });
 
   it("hands another type to the fallback and returns its answer", async () => {
     const answer = Result.ok({ buffer: new ArrayBuffer(8), sizeBytes: 8 });
     const fallback = vi.fn(async () => answer);
-    const stella = converter({ fallback });
+    const converterUnderTest = converter({ fallback });
     const file = { bytes: new ArrayBuffer(4), mimeType: "application/rtf", fileName: "a.rtf" };
-    expect(await stella.convertToPdf(file)).toBe(answer);
+    expect(await converterUnderTest.convertToPdf(file)).toBe(answer);
     expect(fallback).toHaveBeenCalledWith(file);
-    expect(stella.running).toBe(false);
+    expect(converterUnderTest.running).toBe(false);
   });
 
   it("keeps a .docx away from the fallback", async () => {
@@ -208,11 +215,15 @@ describe("what it does not convert", () => {
 
 describe("failures", () => {
   it("reports bytes that are not a .docx as refused, and converts the next document", async () => {
-    const stella = converter();
-    const error = failure(await stella.convertToPdf(docxFile(new TextEncoder().encode("nope"))));
+    const converterUnderTest = converter();
+    const error = failure(
+      await converterUnderTest.convertToPdf(docxFile(new TextEncoder().encode("nope"))),
+    );
     expect(error.kind).toBe("refused");
     expect(error.message).toMatch(/not a ZIP file/);
-    expect(Result.isOk(await stella.convertToPdf(docxFile(fixture("original.docx"))))).toBe(true);
+    expect(
+      Result.isOk(await converterUnderTest.convertToPdf(docxFile(fixture("original.docx")))),
+    ).toBe(true);
   });
 
   it("reports a PDF over the limit as too large", async () => {
@@ -223,10 +234,10 @@ describe("failures", () => {
   });
 
   it("does not start a document that waited its whole budget behind another", async () => {
-    const stella = converter({ timeoutMs: 250 });
-    await stella.warm();
-    const slow = stella.convertToPdf(docxFile(longDocx(30_000)));
-    const behind = stella.convertToPdf(docxFile(longDocx(30_000)));
+    const converterUnderTest = converter({ timeoutMs: 250 });
+    await converterUnderTest.warm();
+    const slow = converterUnderTest.convertToPdf(docxFile(longDocx(30_000)));
+    const behind = converterUnderTest.convertToPdf(docxFile(longDocx(30_000)));
     const started = performance.now();
     expect(failure(await slow).kind).toBe("timeout");
     expect(failure(await behind).kind).toBe("timeout");
@@ -235,34 +246,38 @@ describe("failures", () => {
   });
 
   it("reports a thread that dies under a document as crashed, and recovers", async () => {
-    const stella = converter();
-    await stella.warm();
-    const doomed = stella.convertToPdf(docxFile(longDocx(30_000)));
+    const converterUnderTest = converter();
+    await converterUnderTest.warm();
+    const doomed = converterUnderTest.convertToPdf(docxFile(longDocx(30_000)));
     setTimeout(() => void threads[0]?.terminate(), 100);
     expect(failure(await doomed).kind).toBe("crashed");
-    expect(Result.isOk(await stella.convertToPdf(docxFile(fixture("original.docx"))))).toBe(true);
+    expect(
+      Result.isOk(await converterUnderTest.convertToPdf(docxFile(fixture("original.docx")))),
+    ).toBe(true);
   });
 
   it("reports a worker script that cannot start as crashed, each time", async () => {
-    const stella = converter({ worker: new URL("./no-such-worker.js", import.meta.url) });
-    expect(failure(await stella.convertToPdf(docxFile(fixture("original.docx")))).kind).toBe(
-      "crashed",
-    );
-    expect(failure(await stella.convertToPdf(docxFile(fixture("original.docx")))).kind).toBe(
-      "crashed",
-    );
-    expect(stella.running).toBe(false);
+    const converterUnderTest = converter({
+      worker: new URL("./no-such-worker.js", import.meta.url),
+    });
+    expect(
+      failure(await converterUnderTest.convertToPdf(docxFile(fixture("original.docx")))).kind,
+    ).toBe("crashed");
+    expect(
+      failure(await converterUnderTest.convertToPdf(docxFile(fixture("original.docx")))).kind,
+    ).toBe("crashed");
+    expect(converterUnderTest.running).toBe(false);
   });
 
   it("gives up on a thread that does not become ready within the budget", async () => {
     // A script that never answers stands in for a module that stalls at start.
-    const stella = converter({
+    const converterUnderTest = converter({
       timeoutMs: 300,
       worker: new URL("./fixtures/silent-worker.js", import.meta.url),
     });
     const gone = exited(
       await new Promise((resolve) => {
-        void stella.convertToPdf(docxFile(fixture("original.docx"))).then((result) => {
+        void converterUnderTest.convertToPdf(docxFile(fixture("original.docx"))).then((result) => {
           expect(failure(result).kind).toBe("timeout");
         });
         setTimeout(() => resolve(threads[0]), 50);
@@ -272,14 +287,18 @@ describe("failures", () => {
   });
 
   it("stops a conversion that runs past the timeout, then converts the next on a fresh thread", async () => {
-    const stella = converter({ timeoutMs: 250 });
-    await stella.warm();
+    const converterUnderTest = converter({ timeoutMs: 250 });
+    await converterUnderTest.warm();
     const stopped = exited(threads[0]);
-    expect(failure(await stella.convertToPdf(docxFile(longDocx(30_000)))).kind).toBe("timeout");
+    expect(failure(await converterUnderTest.convertToPdf(docxFile(longDocx(30_000)))).kind).toBe(
+      "timeout",
+    );
     // The thread that was inside the long document is gone, not left running.
     expect(await stopped).toBe(true);
-    expect(Result.isOk(await stella.convertToPdf(docxFile(fixture("original.docx"))))).toBe(true);
-    expect(stella.running).toBe(true);
+    expect(
+      Result.isOk(await converterUnderTest.convertToPdf(docxFile(fixture("original.docx")))),
+    ).toBe(true);
+    expect(converterUnderTest.running).toBe(true);
     expect(threads).toHaveLength(2);
   });
 });

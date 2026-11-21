@@ -1,14 +1,13 @@
 {
   "name": "jubarte-pdf",
   "version": "0.1.0",
-  "description": "DOCX to PDF without a converter service: jubarte's renderer as one WebAssembly module with its fonts compiled in, for the browser, Node and Bun, with a drop-in converter for Stella",
+  "description": "DOCX to PDF without a converter service: jubarte's renderer as one WebAssembly module with its fonts compiled in, for the browser, Node and Bun",
   "keywords": [
     "docx",
     "pdf",
     "wasm",
     "webassembly",
     "word",
-    "stella",
     "gotenberg",
     "libreoffice",
     "jubarte"
@@ -30,11 +29,15 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
-    "./stella": {
-      "types": "./dist/stella.d.ts",
-      "default": "./dist/stella.js"
+    "./wasm": "./pkg/jubarte_pdf_wasm_bg.wasm",
+    "./serve": {
+      "types": "./dist/serve.d.ts",
+      "default": "./dist/serve.js"
     },
-    "./wasm": "./pkg/jubarte_pdf_wasm_bg.wasm"
+    "./server": {
+      "types": "./dist/server.d.ts",
+      "default": "./dist/server.js"
+    }
   },
   "files": [
     "dist",
