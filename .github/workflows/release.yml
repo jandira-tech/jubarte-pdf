@@ -1,0 +1,48 @@
+# SPDX-FileCopyrightText: 2026 Jandira Technologies, LLC
+#
+# SPDX-License-Identifier: Apache-2.0
+
+# Publishes the package to npm when a version tag is pushed. npm trusts this
+# workflow by OIDC (a trusted publisher set on the package), so no token is
+# stored anywhere.
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: build, test and publish to npm
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: release
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable branch, pinned 2026-10-01
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: taiki-e/install-action@72f835688cb6c15903b796f704b01e652a2b8835 # pinned 2026-10-01
+        with:
+          tool: wasm-pack@0.15.0
+          fallback: none
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      - run: sudo apt-get update && sudo apt-get install -y --no-install-recommends poppler-utils
+      - run: corepack enable && pnpm install --frozen-lockfile
+      - name: the tag names the package version
+        run: test "v$(node -p "require('./package.json').version")" = "$GITHUB_REF_NAME"
+      - run: pnpm build
+      - run: pnpm test
+      - run: npm publish --access public --provenance
