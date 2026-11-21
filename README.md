@@ -124,7 +124,7 @@ read the PDFs.
 ```sh
 pnpm install
 pnpm build        # the module into pkg/, then the library into dist/
-pnpm test         # 45 tests
+pnpm test         # 46 tests
 pnpm typecheck && pnpm lint
 cargo test        # the conversion's own two tests, natively
 pnpm demo         # a page that exports a DOCX in the browser

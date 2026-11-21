@@ -14,6 +14,17 @@ import { fixture, hasPoppler, pdfPages, pdfText } from "./helpers.js";
 
 const redline = (): ArrayBuffer => fixture("redline.docx").slice().buffer;
 
+describe("the exporter with its own engine", () => {
+  it("leaves the WebAssembly module alone until something is exported", async () => {
+    const exporter = createFolioPdfExporter();
+    // Loading takes well under this in Node; an eager exporter would be loaded by now.
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    expect(exporter.loaded).toBe(false);
+    await exporter.preload();
+    expect(exporter.loaded).toBe(true);
+  });
+});
+
 describe.skipIf(!hasPoppler)("a folio document", () => {
   it("exports with its tracked changes painted", async () => {
     const reviewer = await FolioDocxReviewer.fromBuffer(redline());

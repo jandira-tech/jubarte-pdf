@@ -25,9 +25,12 @@ const standIn = () => {
 };
 
 describe("loading", () => {
-  it("does not load the engine when the exporter is created", () => {
+  it("does not load the engine when the exporter is created, nor a moment later", async () => {
     const { load } = standIn();
     const exporter = createFolioPdfExporter({ load });
+    expect(load).not.toHaveBeenCalled();
+    // A load deferred to a microtask or a timer would be eager all the same.
+    await new Promise((resolve) => setTimeout(resolve, 50));
     expect(load).not.toHaveBeenCalled();
     expect(exporter.loaded).toBe(false);
     expect(exporter.name).toBe("jubarte-pdf");
