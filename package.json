@@ -16,7 +16,7 @@
   "author": "Jandira Technologies, LLC",
   "repository": {
     "type": "git",
-    "url": "https://github.com/jandira-tech/jubarte-pdf.git"
+    "url": "git+https://github.com/jandira-tech/jubarte-pdf.git"
   },
   "type": "module",
   "sideEffects": false,
